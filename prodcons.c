@@ -8,21 +8,18 @@
 #include "stack.c"
 
 #define BUFF_SIZE 8 // buffer size
-#define NDATA 1024  // Number of data to produce (and consume)
+#define NDATA 128  // Number of data to produce (and consume)
 
 
 int nprod, ncons;       // Number of producers and consumers
 pthread_mutex_t mutex;   // Mutex for the first/second half of the buffer
-pthread_mutex_t inc[2];
+pthread_mutex_t inc;
 sem_t empty;             // Semaphore to signal that the 1st/2nd half is empty
 sem_t full;              // Semaphore to signal that the 1st/2nd half is full
-sem_t done;
+
 
 int buffer[BUFF_SIZE] = {0, 0, 0, 0, 0, 0, 0, 0};
-
 queue* prod_tickets, *cons_tickets;
-
-int prod_counter = 0, cons_counter = 0;
 
 
 
@@ -34,8 +31,9 @@ void* consumer(void* arg);      // consumer function
 //void* exec_prod(void* param);
 //void* exec_cons(void* param);
 int produce();                  // produce a random number
-void insert_item(int elem, int in);    // insert elem at buffer[index]
-void remove_item(int out);     // remove item at buffer[index]
+int insert_item(int elem, int in);    // insert elem at buffer[in]
+int remove_item(int out);     // remove item at buffer[out]
+int increment(int *x);
 void signal(sem_t* sem);
 
 
@@ -43,55 +41,55 @@ int inserted = 0; // producer counter
 int removed = 0; // consumer counter
 int filled = 0;
 
-
-
+/**
+ * Concurrent ticket production
+ * Wait for the 
+ * Parralel insertion
+ * If current thread inserted the 8th element, signal consumers
+ */
 void* producer(void* arg)
 {
-    int item, ticket;
-    while(prod_tickets != NULL)
+    int item, ticket, rest;
+    while(prod_tickets != NULL && (ticket = queue_pop(&prod_tickets))!= -1) // Concurrent ticket production
     {
-        item = produce();
-        ticket = queue_pop(&prod_tickets);
-        if(ticket == -1)
-            return NULL;
-        sem_wait(&empty); // wait 
-        //pthread_mutex_lock(&mutex);
-        insert_item(item, ticket); //fill the buffer concurrently
-        //pthread_mutex_unlock(&mutex);
-        if(ticket%BUFF_SIZE == 7) {
-            sem_wait(&done);
+        item = produce();                           // Produce the random number
+        sem_wait(&empty); 
+        //pthread_mutex_lock(&mutex);                 
+        rest = insert_item(item, ticket);           // parrallel insertion in buffer
+        //pthread_mutex_unlock(&mutex);               
+        if(!rest) 
             signal(&full);
-        }
-            //printf("Ready to be consumed\n");
     }
+    signal(&full);
     return NULL;
 }
 
 void* consumer(void* arg)
 {   
-    int ticket;
-    while(cons_tickets != NULL)
+    int ticket, rest;
+    while(cons_tickets != NULL && (ticket = queue_pop(&cons_tickets)) != -1)
     {
-        ticket = queue_pop(&cons_tickets);
-        if(ticket == -1)
-            return NULL;
         sem_wait(&full);
-        //pthread_mutex_lock(&mutin%BUFF_SIZE
-        
-        remove_item(ticket);
+        //pthread_mutex_lock(&mutex);
+        rest = remove_item(ticket);
         //pthread_mutex_unlock(&mutex);
-        sem_post(&empty);
+        if(!rest) 
+            signal(&empty);
     }
     return NULL;
 }
 
-void insert_item(int elem, int in)
+int insert_item(int elem, int in)
 {
     int k = in%BUFF_SIZE;
     int x = buffer[k];
     buffer[k] = elem;
     //(rand() - 2147483647 / 2) * (rand() % 2) + 1;
-    printf("Buffer[%d] has been produced (P%d): ancient value: (%d)\n", k, in+1, x);
+    printf("Buffer[%d] has been produced (ticket P%d): ancient value: (%d)\n", k, in, x);
+    pthread_mutex_lock(&inc);
+    k = increment(&inserted);
+    pthread_mutex_unlock(&inc);
+    return k;
 }
 
 int produce()
@@ -102,12 +100,19 @@ int produce()
 }
 
 
-void remove_item(int out)
+int remove_item(int out)
 {
-    int consumed = buffer[out%BUFF_SIZE];
-    buffer[out%BUFF_SIZE] = 0;
-    printf("Buffer[%d] has been consumed (C%d): %d\n", out%BUFF_SIZE, out, consumed);
+    int k = out%BUFF_SIZE;
+    int consumed = buffer[k];
+    buffer[k] = 0;
+    printf("Buffer[%d] has been consumed (ticket C%d): %d\n", k, out+1, consumed);
+    pthread_mutex_lock(&inc);
+    k = increment(&removed);
+    pthread_mutex_unlock(&inc);
+    return k;
 }
+
+int increment(int* counter) {  return (++ *counter) % BUFF_SIZE; }
 
 void signal(sem_t* sem)
 {
