@@ -43,7 +43,7 @@ int filled = 0;
 
 /**
  * Concurrent ticket production
- * Wait for the 
+ * Wait for the buffer to be entirely consumed
  * Parralel insertion
  * If current thread inserted the 8th element, signal consumers
  */
@@ -54,11 +54,8 @@ void* producer(void* arg)
     {
         item = produce();                           // Produce the random number
         sem_wait(&empty); 
-        //pthread_mutex_lock(&mutex);                 
         rest = insert_item(item, ticket);           // parrallel insertion in buffer
-        //pthread_mutex_unlock(&mutex);               
-        if(!rest) 
-            signal(&full);
+        if(!rest) signal(&full);
     }
     signal(&full);
     return NULL;
