@@ -43,7 +43,6 @@ int queue_pop(queue** myqueue)
     (*myqueue)->head = (*myqueue)->head->next;
     free(q);
     q = NULL;
-    pthread_mutex_unlock(&ticket);
     if((*myqueue)->head == NULL)
     {
         free((*myqueue)->head);
@@ -51,6 +50,7 @@ int queue_pop(queue** myqueue)
         free(*myqueue);
         *myqueue = NULL;
     }
+    pthread_mutex_unlock(&ticket);
     return ret;
 }
 

@@ -8,38 +8,36 @@
 #include "stack.c"
 
 #define BUFF_SIZE 8 // buffer size
-#define NDATA 128  // Number of data to produce (and consume)
+#define NDATA 1024  // Number of data to produce (and consume)
 
 
-int nprod, ncons;       // Number of producers and consumers
-pthread_mutex_t mutex;   // Mutex for the first/second half of the buffer
+int nprod, ncons;        // Number of producers and consumers
 pthread_mutex_t inc;
 sem_t empty;             // Semaphore to signal that the 1st/2nd half is empty
 sem_t full;              // Semaphore to signal that the 1st/2nd half is full
 
 
 int buffer[BUFF_SIZE] = {0, 0, 0, 0, 0, 0, 0, 0};
-queue* prod_tickets, *cons_tickets;
+queue* prod_tickets, *cons_tickets; // concurrent queue
 
-
-
-/* FUNCTIONS */
+/* FUNCTIONS DECLARATIONS*/
 
 
 void* producer(void* arg);      // producer function
 void* consumer(void* arg);      // consumer function
-//void* exec_prod(void* param);
-//void* exec_cons(void* param);
+
 int produce();                  // produce a random number
 int insert_item(int elem, int in);    // insert elem at buffer[in]
 int remove_item(int out);     // remove item at buffer[out]
-int increment(int *x);
-void signal(sem_t* sem);
 
+int increment(int *counter);
+int decrement(int* counter);
+
+void signal(sem_t* sem);    // sem_post 8 times
 
 int inserted = 0; // producer counter
 int removed = 0; // consumer counter
-int filled = 0;
+int slot = 0;
 
 /**
  * Concurrent ticket production
@@ -50,14 +48,13 @@ int filled = 0;
 void* producer(void* arg)
 {
     int item, ticket, rest;
-    while(prod_tickets != NULL && (ticket = queue_pop(&prod_tickets))!= -1) // Concurrent ticket production
+    while(prod_tickets!= NULL && (ticket = queue_pop(&prod_tickets))!= -1) // Concu ticket production
     {
-        item = produce();                           // Produce the random number
+        item = produce();                           // Parral random number production
         sem_wait(&empty); 
-        rest = insert_item(item, ticket);           // parrallel insertion in buffer
-        if(!rest) signal(&full);
+        rest = insert_item(item, ticket); // parrallel insertion in buffer, concur incrementation of slot counter 
+        if(!rest) signal(&full);               // if slot == 8 then signal
     }
-    signal(&full);
     return NULL;
 }
 
@@ -67,11 +64,8 @@ void* consumer(void* arg)
     while(cons_tickets != NULL && (ticket = queue_pop(&cons_tickets)) != -1)
     {
         sem_wait(&full);
-        //pthread_mutex_lock(&mutex);
         rest = remove_item(ticket);
-        //pthread_mutex_unlock(&mutex);
-        if(!rest) 
-            signal(&empty);
+        if(!rest) signal(&empty);
     }
     return NULL;
 }
@@ -82,9 +76,9 @@ int insert_item(int elem, int in)
     int x = buffer[k];
     buffer[k] = elem;
     //(rand() - 2147483647 / 2) * (rand() % 2) + 1;
-    printf("Buffer[%d] has been produced (ticket P%d): ancient value: (%d)\n", k, in, x);
+    printf("Buffer[%d] has been produced (ticket P%d): (%d) -> %d\n", k, in, x, elem);
     pthread_mutex_lock(&inc);
-    k = increment(&inserted);
+    k = increment(&slot);
     pthread_mutex_unlock(&inc);
     return k;
 }
@@ -102,39 +96,35 @@ int remove_item(int out)
     int k = out%BUFF_SIZE;
     int consumed = buffer[k];
     buffer[k] = 0;
-    printf("Buffer[%d] has been consumed (ticket C%d): %d\n", k, out+1, consumed);
+    printf("Buffer[%d] has been consumed (ticket C%d): %d -> %d\n", k, out+1, consumed, buffer[k]);
     pthread_mutex_lock(&inc);
-    k = increment(&removed);
+    k = decrement(&slot);
     pthread_mutex_unlock(&inc);
     return k;
 }
 
-int increment(int* counter) {  return (++ *counter) % BUFF_SIZE; }
+int increment(int* counter) { return (++ *counter) != 8; }
+int decrement(int* counter) { return (-- *counter) != 0; }
 
 void signal(sem_t* sem)
 {
-    int signal[8] = {
-        sem_post(sem), sem_post(sem),
-        sem_post(sem), sem_post(sem), 
-        sem_post(sem), sem_post(sem), 
-        sem_post(sem), sem_post(sem) 
-    };
+    int signal[8] = {sem_post(sem), sem_post(sem), sem_post(sem), sem_post(sem), 
+                     sem_post(sem), sem_post(sem), sem_post(sem), sem_post(sem)};
 }
 
 //Ce main ne fonctionne que pour 1 producer et 1 consommateur, à généraliser
-int main(int argc, char** argv)
+int main(int argc, char** argv)//int argc, char** argv)
 {
     clock_t begin = clock();
     
     nprod = atoi(argv[1]); // number of producers
     ncons = atoi(argv[2]); // number of consumers
 
-    if(nprod < 1 || ncons < 1 || nprod + ncons > 8) {
+    if(nprod < 1 || ncons < 1 || nprod + ncons > 8) 
+    {
         printf("[Illegal arguments]] argv[1]: %s, argv[2]: %s\n", argv[1], argv[2]);
         return 1;
-    }
-    // We lose one consumer and one producer by executing consumer and producerS
-    
+    }    
 
     pthread_t thread_p[nprod];
     pthread_t thread_c[ncons];
